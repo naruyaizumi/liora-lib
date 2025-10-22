@@ -1,0 +1,103 @@
+name: Build and Release Native Binaries
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build on ubuntu-24.04 (${{ matrix.arch }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          check-latest: true
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 10
+
+      - name: 🧱 Build native addon (Linux)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            build-essential pkg-config cmake python3 python3-dev \
+            ffmpeg imagemagick \
+            libavformat-dev libavcodec-dev libavutil-dev \
+            libswresample-dev libswscale-dev \
+            libwebp-dev libpng-dev libjpeg-dev zlib1g-dev \
+            libfreetype6-dev libharfbuzz-dev libpango1.0-dev \
+            libgif-dev libopus-dev libvpx-dev \
+            libcurl4-openssl-dev libnghttp2-dev libssl-dev
+
+          pnpm install --ignore-scripts
+          pnpm run build:addon
+
+      - name: 🧪 Run tests
+        run: |
+          echo "Running post-build tests..."
+          pnpm run test
+
+      - name: 📁 Stage .node files
+        run: |
+          mkdir -p prebuilds
+          cp build/Release/*.node prebuilds/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          path: prebuilds/
+
+  release:
+    name: 🚀 Create GitHub Release & Publish to npm
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+
+      - name: 🗜️ Pack prebuild tarballs
+        run: |
+          set -e
+          mkdir -p dist
+          for arch in x64 arm64; do
+            src="artifacts/linux-$arch"
+            [ -d "$src" ] || (echo "Missing artifact: $src" && exit 1)
+            tar -czf "dist/prebuild-Linux-$arch.tar.gz" -C "$src" .
+          done
+          ls -lah dist
+
+      - name: 🧾 Create/Update GitHub Release with assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: "dist/prebuild-Linux-*.tar.gz"
+          draft: false
+          prerelease: false
+
+      - name: 🔐 Configure npm auth
+        run: |
+          npm config set //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}
+          npm config set registry https://registry.npmjs.org/
+          npm whoami
+
+      - name: 📦 Publish to npm
+        run: npm publish --access public

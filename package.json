@@ -1,0 +1,69 @@
+{
+	"name": "liora-lib",
+	"version": "1.1.0",
+	"description": "Native utility library for Liora WhatsApp Bot",
+	"type": "module",
+	"main": "./src/bridge.js",
+	"exports": {
+		".": "./src/bridge.js"
+	},
+	"files": [
+		"src/",
+		"install/",
+		"package.json",
+		"README.md",
+		"LICENSE"
+	],
+	"engines": {
+		"node": ">=22.0.0"
+	},
+	"scripts": {
+		"build": "node-gyp configure build",
+		"build:addon": "node-gyp configure build",
+		"install": "node install/prebuild.js",
+		"test": "node test.js"
+	},
+	"license": "Apache-2.0",
+	"author": {
+		"name": "Naruya Izumi",
+		"url": "https://linkbio.co/naruyaizumi"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/naruyaizumi/liora-lib.git"
+	},
+	"homepage": "https://github.com/naruyaizumi",
+	"keywords": [
+		"naruyaizumi",
+		"liora-lib",
+		"cron",
+		"cron-job",
+		"cron-scheduler",
+		"scheduler",
+		"task-runner",
+		"automation",
+		"convert",
+		"audio-converter",
+		"media-converter",
+		"file-conversion",
+		"ffmpeg",
+		"sticker",
+		"sticker-maker",
+		"sticker-generator",
+		"webp",
+		"webp-tools",
+		"image-processing",
+		"fetch",
+		"http-fetch",
+		"native-fetch",
+		"request-wrapper",
+		"network-client",
+		"multimedia",
+		"utility-library",
+		"performance"
+	],
+	"devDependencies": {
+		"node-addon-api": "^8.5.0"
+	},
+	"packageManager": "pnpm@10.18.1"
+}
