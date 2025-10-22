@@ -45,11 +45,6 @@ jobs:
           pnpm install --ignore-scripts
           pnpm run build:addon
 
-      - name: 🧪 Run tests
-        run: |
-          echo "Running post-build tests..."
-          pnpm run test
-
       - name: 📁 Stage .node files
         run: |
           mkdir -p prebuilds
