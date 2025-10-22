@@ -12,7 +12,6 @@
 #include <cstdlib>
 #include <ctime>
 #include <algorithm>
-#include <memory>
 
 using clock_sys    = std::chrono::system_clock;
 using clock_steady = std::chrono::steady_clock;
@@ -31,10 +30,9 @@ static std::tm to_local_tm(std::time_t t) {
 #endif
   return out;
 }
-
 static std::time_t from_local_tm(std::tm tm) {
 #if defined(_WIN32)
-  return _mktime64(&tm);
+  return _mkgmtime(&tm) + _timezone;
 #else
   return std::mktime(&tm);
 #endif
@@ -95,8 +93,7 @@ static std::time_t next_fire_time(const CronExpr& c, std::time_t now) {
     std::tm tm = to_local_tm(base);
     int mon  = tm.tm_mon + 1;
     int mday = tm.tm_mday;
-    int dow  = tm.tm_wday;
-
+    int dow  = (tm.tm_wday + 7) % 7;
     if (!match_field(c.mon, mon))  continue;
     if (!match_field(c.dom, mday)) continue;
     if (!match_field(c.dow, dow))  continue;
@@ -117,7 +114,7 @@ static std::time_t next_fire_time(const CronExpr& c, std::time_t now) {
 
 enum class Concurrency { SKIP, QUEUE, PARALLEL };
 
-class Job : public std::enable_shared_from_this<Job> {
+class Job {
 public:
   Job(Napi::Env env,
       std::string name,
@@ -131,13 +128,12 @@ public:
       mode_(mode),
       maxQueue_(maxQueue),
       intervalSec_(intervalSec),
+      tsfn_(Napi::ThreadSafeFunction::New(
+        env, cb, "cron_cb:" + name_, 0 /*unbounded queue*/, 1 /*threads*/)),
       running_(true),
       active_(0) {
 
     if (intervalSec_ > 0) {
-      if (intervalSec_ < 1) {
-        throw Napi::Error::New(env, "intervalSeconds must be >= 1");
-      }
       isInterval_ = true;
     } else {
       std::string err;
@@ -145,15 +141,6 @@ public:
         throw Napi::Error::New(env, "Invalid cron: " + err);
       }
     }
-
-    if (maxQueue_ == 0) {
-      throw Napi::Error::New(env, "maxQueue must be >= 1");
-    }
-
-    tsfn_ = Napi::ThreadSafeFunction::New(
-      env, cb, "cron_cb:" + name_, 0 /*unbounded queue*/, 1 /*threads*/,
-      [](Napi::Env, void*, void*){}
-    );
 
     worker_ = std::thread([this](){ loop(); });
   }
@@ -163,22 +150,16 @@ public:
   void stop() {
     bool expected = true;
     if (running_.compare_exchange_strong(expected, false)) {
-      { std::lock_guard<std::mutex> lk(mu_); }
+      { std::lock_guard<std::mutex> lk(mu_); queue_.clear(); }
       cv_.notify_all();
       if (worker_.joinable()) worker_.join();
-      
-      { std::lock_guard<std::mutex> lk(qmu_); queue_.clear(); }
-      
-      if (!tsfnReleased_.exchange(true)) {
-        tsfn_.Release();
-      }
+      if (!tsfnReleased_.exchange(true)) tsfn_.Release();
     }
   }
 
   bool isRunning() const { return running_.load(); }
 
   int secondsToNext() const {
-    if (!running_.load()) return 0;
     std::time_t now  = std::time(nullptr);
     std::time_t next = isInterval_ ? now + intervalSec_ : next_fire_time(cron_, now);
     long diff = static_cast<long>(next - now);
@@ -208,7 +189,7 @@ private:
           std::lock_guard<std::mutex> ql(qmu_);
           if (queue_.size() >= maxQueue_) queue_.pop_front();
           queue_.push_back(1);
-          if (active_.load() == 0) scheduleQueuePump();
+          if (active_.load() == 0) pumpQueue();
           break;
         }
         case Concurrency::PARALLEL:
@@ -217,54 +198,34 @@ private:
       }
     }
 
-    while (active_.load() > 0) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    if (mode_ == Concurrency::QUEUE) {
+      for (;;) {
+        bool has; { std::lock_guard<std::mutex> ql(qmu_); has = !queue_.empty(); }
+        if (!has) break;
+        pumpQueue();
+      }
     }
-  }
-
-  void scheduleQueuePump() {
-    std::thread([this]() { pumpQueue(); }).detach();
   }
 
   void pumpQueue() {
-    while (running_) {
-      bool hasItem = false;
-      {
-        std::lock_guard<std::mutex> ql(qmu_);
-        if (!queue_.empty()) {
-          queue_.pop_front();
-          hasItem = true;
-        }
-      }
-      
-      if (!hasItem) break;
-      
-      launchTask();
-      
-      while (active_.load() > 0 && running_) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      }
+    {
+      std::lock_guard<std::mutex> ql(qmu_);
+      if (queue_.empty()) return;
+      queue_.pop_front();
     }
+    launchTask();
   }
 
   void launchTask() {
-    if (!running_) return;
-    
     active_.fetch_add(1);
-    
-    auto status = tsfn_.NonBlockingCall([this](Napi::Env env, Napi::Function cb){
-      try { 
-        cb.Call({}); 
-      } catch (const std::exception& e) {
-      } catch (...) {
-        // Swallow
-      }
-      
-      active_.fetch_sub(1);
+    tsfn_.BlockingCall([](Napi::Env env, Napi::Function cb){
+      try { cb.Call({}); } catch (...) { /* swallow */ }
     });
-    
-    if (status != napi_ok) {
-      active_.fetch_sub(1);
+    active_.fetch_sub(1);
+
+    if (mode_ == Concurrency::QUEUE) {
+      bool hasMore; { std::lock_guard<std::mutex> ql(qmu_); hasMore = !queue_.empty(); }
+      if (hasMore) pumpQueue();
     }
   }
 
@@ -341,51 +302,29 @@ static Napi::Value Schedule(const Napi::CallbackInfo& info) {
   }
 
   Napi::Object handle = Napi::Object::New(env);
-  
-  struct JobRef {
-    Job* ptr;
-    std::mutex mu;
-    JobRef(Job* p) : ptr(p) {}
-  };
-  auto jobRef = std::make_shared<JobRef>(job);
-  
-  handle.Set("stop", Napi::Function::New(env, [jobRef](const Napi::CallbackInfo& info){
-    std::lock_guard<std::mutex> lk(jobRef->mu);
-    if (jobRef->ptr) jobRef->ptr->stop();
+  handle.Set("stop", Napi::Function::New(env, [job](const Napi::CallbackInfo& info){
+    job->stop();
     return info.Env().Undefined();
   }));
-  
-  handle.Set("isRunning", Napi::Function::New(env, [jobRef](const Napi::CallbackInfo& info){
-    std::lock_guard<std::mutex> lk(jobRef->mu);
-    bool running = jobRef->ptr ? jobRef->ptr->isRunning() : false;
-    return Napi::Boolean::New(info.Env(), running);
+  handle.Set("isRunning", Napi::Function::New(env, [job](const Napi::CallbackInfo& info){
+    return Napi::Boolean::New(info.Env(), job->isRunning());
   }));
-  
-  handle.Set("secondsToNext", Napi::Function::New(env, [jobRef](const Napi::CallbackInfo& info){
-    std::lock_guard<std::mutex> lk(jobRef->mu);
-    int seconds = jobRef->ptr ? jobRef->ptr->secondsToNext() : 0;
-    return Napi::Number::New(info.Env(), seconds);
+  handle.Set("secondsToNext", Napi::Function::New(env, [job](const Napi::CallbackInfo& info){
+    return Napi::Number::New(info.Env(), job->secondsToNext());
   }));
 
   auto ext = Napi::External<Job>::New(
     env, job,
-    [jobRef](Napi::Env, Job* j){
+    [](Napi::Env, Job* j){
       if (!j) return;
-      
-      {
-        std::lock_guard<std::mutex> lk(g_jobs_mu);
+      { std::lock_guard<std::mutex> lk(g_jobs_mu);
         auto it = std::find(g_jobs.begin(), g_jobs.end(), j);
         if (it != g_jobs.end()) g_jobs.erase(it);
       }
-      
       j->stop();
       delete j;
-      
-      std::lock_guard<std::mutex> lk(jobRef->mu);
-      jobRef->ptr = nullptr;
     }
   );
-  
   handle.DefineProperties({
     Napi::PropertyDescriptor::Value("_native", ext, napi_enumerable)
   });
