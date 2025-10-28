@@ -1,6 +1,6 @@
 {
 	"name": "liora-lib",
-	"version": "1.2.5",
+	"version": "1.2.6",
 	"description": "Native utility library for Liora WhatsApp Bot",
 	"type": "module",
 	"main": "export.js",
@@ -36,33 +36,16 @@
 		"naruyaizumi",
 		"liora-lib",
 		"cron",
-		"cron-job",
-		"cron-scheduler",
 		"scheduler",
-		"task-runner",
-		"automation",
 		"convert",
-		"audio-converter",
-		"media-converter",
-		"file-conversion",
 		"ffmpeg",
 		"sticker",
-		"sticker-maker",
-		"sticker-generator",
 		"webp",
-		"webp-tools",
-		"image-processing",
 		"fetch",
-		"http-fetch",
-		"native-fetch",
-		"request-wrapper",
-		"network-client",
-		"multimedia",
-		"utility-library",
 		"performance"
 	],
 	"devDependencies": {
 		"node-addon-api": "^8.5.0"
 	},
-	"packageManager": "pnpm@10.18.1"
+	"packageManager": "pnpm@10.19.0"
 }

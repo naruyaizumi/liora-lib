@@ -10,17 +10,15 @@ permissions:
 
 jobs:
   build:
-    name: Build on ubuntu-24.04 (${{ matrix.arch }})
+    name: Build on ubuntu-24.04 (x64)
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        arch: [x64, arm64]
+        arch: [x64]
         include:
           - arch: x64
             npm_arch: x64
-          - arch: arm64
-            npm_arch: arm64
 
     steps:
       - uses: actions/checkout@v4
@@ -47,22 +45,13 @@ jobs:
             libgif-dev libopus-dev libvpx-dev \
             libcurl4-openssl-dev libnghttp2-dev libssl-dev
 
-          if [ "${{ matrix.arch }}" = "arm64" ]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-          fi
-
       - name: Install dependencies
         run: pnpm install --ignore-scripts
 
       - name: Build native addons
         env:
-          npm_config_arch: ${{ matrix.npm_arch }}
+          npm_config_arch: x64
         run: |
-          if [ "${{ matrix.arch }}" = "arm64" ]; then
-            export CC=aarch64-linux-gnu-gcc
-            export CXX=aarch64-linux-gnu-g++
-          fi
-
           export CXXFLAGS="-O3 -fexceptions -fPIC -std=c++20"
           export LDFLAGS="-Wl,--as-needed -Wl,--gc-sections"
 
@@ -71,7 +60,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-${{ matrix.arch }}
+          name: linux-x64
           path: build/Release/
           if-no-files-found: error
 
@@ -99,20 +88,18 @@ jobs:
         with:
           path: ./artifacts
 
-      - name: Pack prebuild tarballs
+      - name: Pack prebuild tarball
         run: |
           mkdir -p dist
-          for arch in x64 arm64; do
-            src="artifacts/linux-$arch"
-            tar -czf "dist/build-Linux-$arch.tar.gz" -C "$src" .
-            echo "✔ Packed build-Linux-$arch.tar.gz"
-          done
+          src="artifacts/linux-x64"
+          tar -czf "dist/build-Linux-x64.tar.gz" -C "$src" .
+          echo "✔ Packed build-Linux-x64.tar.gz"
           ls -lah dist/
 
-      - name: Upload Release Assets
+      - name: Upload Release Asset
         uses: softprops/action-gh-release@v1
         with:
-          files: dist/build-Linux-*.tar.gz
+          files: dist/build-Linux-x64.tar.gz
           generate_release_notes: true
 
       - name: Publish to npm

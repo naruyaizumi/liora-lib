@@ -80,11 +80,6 @@ function sticker(buffer, options = {}) {
     return stickerNative.sticker(buffer, opts);
 }
 
-function encodeRGBA(buf, w, h, opt = {}) {
-    if (!Buffer.isBuffer(buf)) throw new Error("encodeRGBA() input must be a Buffer");
-    return stickerNative.encodeRGBA(buf, w, h, opt);
-}
-
 const converterNative = loadAddon("converter");
 
 function convert(input, options = {}) {
@@ -157,7 +152,6 @@ export {
     schedule,
     addExif,
     sticker,
-    encodeRGBA,
     convert,
     fetch
 };
