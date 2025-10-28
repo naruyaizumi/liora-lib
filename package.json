@@ -1,15 +1,15 @@
 {
 	"name": "liora-lib",
-	"version": "1.2.3",
+	"version": "1.2.4",
 	"description": "Native utility library for Liora WhatsApp Bot",
 	"type": "module",
-	"main": "./src/bridge.js",
+	"main": "export.js",
 	"exports": {
-		".": "./src/bridge.js"
+		".": "export.js"
 	},
 	"files": [
-		"src/",
-		"install/",
+		"core.js",
+		"export.js",
 		"package.json",
 		"README.md",
 		"LICENSE"
@@ -20,8 +20,7 @@
 	"scripts": {
 		"build": "node-gyp configure build",
 		"build:addon": "node-gyp configure build",
-		"install": "node install/prebuild.js",
-		"test": "node test.js"
+		"install": "node core.js"
 	},
 	"license": "Apache-2.0",
 	"author": {

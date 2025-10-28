@@ -21,37 +21,6 @@ build/
 *.obj
 *.lib
 
-# Temporary files
-tmp/
-temp/
-*.tmp
-*.log
-.DS_Store
-
-# IDE/editor
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS files
-Thumbs.db
-ehthumbs.db
-
-# Databases (if any, optional)
-database/*.db
-database/*.db-*
-*.sqlite
-
-# Tests and coverage
-coverage/
-.nyc_output/
-
-# Local env / secrets
-.env
-.env.local
-.env.*
-
 # CI build artifacts
 prebuilds/
 npm/

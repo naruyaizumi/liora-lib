@@ -12,13 +12,14 @@
 #include <cstdlib>
 #include <ctime>
 #include <algorithm>
+#include <memory>
 
 using clock_sys    = std::chrono::system_clock;
 using clock_steady = std::chrono::steady_clock;
 
 class Job;
 static std::mutex g_jobs_mu;
-static std::vector<Job*> g_jobs;
+static std::vector<std::shared_ptr<Job>> g_jobs;
 static void GlobalCleanup(void*);
 
 static std::tm to_local_tm(std::time_t t) {
@@ -30,9 +31,10 @@ static std::tm to_local_tm(std::time_t t) {
 #endif
   return out;
 }
+
 static std::time_t from_local_tm(std::tm tm) {
 #if defined(_WIN32)
-  return _mkgmtime(&tm) + _timezone;
+  return _mktime64(&tm);
 #else
   return std::mktime(&tm);
 #endif
@@ -93,7 +95,7 @@ static std::time_t next_fire_time(const CronExpr& c, std::time_t now) {
     std::tm tm = to_local_tm(base);
     int mon  = tm.tm_mon + 1;
     int mday = tm.tm_mday;
-    int dow  = (tm.tm_wday + 7) % 7;
+    int dow  = tm.tm_wday;
     if (!match_field(c.mon, mon))  continue;
     if (!match_field(c.dom, mday)) continue;
     if (!match_field(c.dow, dow))  continue;
@@ -114,7 +116,7 @@ static std::time_t next_fire_time(const CronExpr& c, std::time_t now) {
 
 enum class Concurrency { SKIP, QUEUE, PARALLEL };
 
-class Job {
+class Job : public std::enable_shared_from_this<Job> {
 public:
   Job(Napi::Env env,
       std::string name,
@@ -189,7 +191,7 @@ private:
           std::lock_guard<std::mutex> ql(qmu_);
           if (queue_.size() >= maxQueue_) queue_.pop_front();
           queue_.push_back(1);
-          if (active_.load() == 0) pumpQueue();
+          if (active_.load() == 0) processQueue();
           break;
         }
         case Concurrency::PARALLEL:
@@ -199,34 +201,45 @@ private:
     }
 
     if (mode_ == Concurrency::QUEUE) {
-      for (;;) {
-        bool has; { std::lock_guard<std::mutex> ql(qmu_); has = !queue_.empty(); }
-        if (!has) break;
-        pumpQueue();
+      while (active_.load() > 0 || !queue_.empty()) {
+        processQueue();
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
       }
     }
   }
 
-  void pumpQueue() {
+  void processQueue() {
+    bool hasWork;
     {
       std::lock_guard<std::mutex> ql(qmu_);
-      if (queue_.empty()) return;
-      queue_.pop_front();
+      hasWork = !queue_.empty() && active_.load() == 0;
+      if (hasWork) {
+        queue_.pop_front();
+      }
     }
-    launchTask();
+    if (hasWork) {
+      launchTask();
+    }
   }
 
   void launchTask() {
     active_.fetch_add(1);
-    tsfn_.BlockingCall([](Napi::Env env, Napi::Function cb){
-      try { cb.Call({}); } catch (...) { /* swallow */ }
+    
+    auto self = shared_from_this();
+    
+    tsfn_.BlockingCall([self](Napi::Env env, Napi::Function cb){
+      try { 
+        cb.Call({}); 
+      } catch (...) { 
+        /* swallow JS exceptions */ 
+      }
+      
+      self->active_.fetch_sub(1);
+      
+      if (self->mode_ == Concurrency::QUEUE) {
+        self->processQueue();
+      }
     });
-    active_.fetch_sub(1);
-
-    if (mode_ == Concurrency::QUEUE) {
-      bool hasMore; { std::lock_guard<std::mutex> ql(qmu_); hasMore = !queue_.empty(); }
-      if (hasMore) pumpQueue();
-    }
   }
 
 private:
@@ -251,9 +264,9 @@ private:
 };
 
 static void GlobalCleanup(void*) {
-  std::vector<Job*> jobsCopy;
+  std::vector<std::shared_ptr<Job>> jobsCopy;
   { std::lock_guard<std::mutex> lk(g_jobs_mu); jobsCopy.swap(g_jobs); }
-  for (auto* j : jobsCopy) { if (j) { j->stop(); delete j; } }
+  for (auto& j : jobsCopy) { if (j) j->stop(); }
 }
 
 static Napi::Value Schedule(const Napi::CallbackInfo& info) {
@@ -279,9 +292,9 @@ static Napi::Value Schedule(const Napi::CallbackInfo& info) {
   if (conc == "queue")    mode = Concurrency::QUEUE;
   else if (conc == "parallel") mode = Concurrency::PARALLEL;
 
-  Job* job = nullptr;
+  std::shared_ptr<Job> job;
   try {
-    job = new Job(env, name, cron, cb, tz, mode, maxQueue, intervalSec);
+    job = std::make_shared<Job>(env, name, cron, cb, tz, mode, maxQueue, intervalSec);
   } catch (const Napi::Error& e) {
     e.ThrowAsJavaScriptException();
     return env.Undefined();
@@ -302,27 +315,43 @@ static Napi::Value Schedule(const Napi::CallbackInfo& info) {
   }
 
   Napi::Object handle = Napi::Object::New(env);
-  handle.Set("stop", Napi::Function::New(env, [job](const Napi::CallbackInfo& info){
-    job->stop();
+  
+  std::weak_ptr<Job> weakJob = job;
+  
+  handle.Set("stop", Napi::Function::New(env, [weakJob](const Napi::CallbackInfo& info){
+    if (auto j = weakJob.lock()) {
+      j->stop();
+    }
     return info.Env().Undefined();
   }));
-  handle.Set("isRunning", Napi::Function::New(env, [job](const Napi::CallbackInfo& info){
-    return Napi::Boolean::New(info.Env(), job->isRunning());
+  
+  handle.Set("isRunning", Napi::Function::New(env, [weakJob](const Napi::CallbackInfo& info){
+    if (auto j = weakJob.lock()) {
+      return Napi::Boolean::New(info.Env(), j->isRunning());
+    }
+    return Napi::Boolean::New(info.Env(), false);
   }));
-  handle.Set("secondsToNext", Napi::Function::New(env, [job](const Napi::CallbackInfo& info){
-    return Napi::Number::New(info.Env(), job->secondsToNext());
+  
+  handle.Set("secondsToNext", Napi::Function::New(env, [weakJob](const Napi::CallbackInfo& info){
+    if (auto j = weakJob.lock()) {
+      return Napi::Number::New(info.Env(), j->secondsToNext());
+    }
+    return Napi::Number::New(info.Env(), -1);
   }));
 
-  auto ext = Napi::External<Job>::New(
-    env, job,
-    [](Napi::Env, Job* j){
-      if (!j) return;
-      { std::lock_guard<std::mutex> lk(g_jobs_mu);
-        auto it = std::find(g_jobs.begin(), g_jobs.end(), j);
-        if (it != g_jobs.end()) g_jobs.erase(it);
+  auto ext = Napi::External<std::shared_ptr<Job>>::New(
+    env, new std::shared_ptr<Job>(job),
+    [](Napi::Env, std::shared_ptr<Job>* jPtr){
+      if (!jPtr) return;
+      auto j = *jPtr;
+      if (j) {
+        { std::lock_guard<std::mutex> lk(g_jobs_mu);
+          auto it = std::find(g_jobs.begin(), g_jobs.end(), j);
+          if (it != g_jobs.end()) g_jobs.erase(it);
+        }
+        j->stop();
       }
-      j->stop();
-      delete j;
+      delete jPtr;
     }
   );
   handle.DefineProperties({

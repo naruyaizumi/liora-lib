@@ -400,7 +400,7 @@ Napi::Value MakeSticker(const Napi::CallbackInfo& info){
 
 Napi::Object Init(Napi::Env env, Napi::Object exports){
   exports.Set("addExif",    Napi::Function::New(env, AddExif));
-  exports.Set("sticker",    Napi::Function::New(env, MakeSticker)); // JS: sticker()
+  exports.Set("sticker",    Napi::Function::New(env, MakeSticker));
   exports.Set("makeSticker",Napi::Function::New(env, MakeSticker));
   return exports;
 }

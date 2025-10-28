@@ -16,6 +16,13 @@ jobs:
       fail-fast: false
       matrix:
         arch: [x64, arm64]
+        include:
+          - arch: x64
+            npm_arch: x64
+            gcc_arch: x86_64
+          - arch: arm64
+            npm_arch: arm64
+            gcc_arch: aarch64
 
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +36,13 @@ jobs:
         with:
           version: 10
 
-      - name: 🧱 Build native addon (Linux)
+      - name: Install cross-compilation tools
+        if: matrix.arch == 'arm64'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+      - name: Build native addon (Linux ${{ matrix.arch }})
         run: |
           sudo apt-get update -y
           sudo apt-get install -y \
@@ -42,18 +55,40 @@ jobs:
             libgif-dev libopus-dev libvpx-dev \
             libcurl4-openssl-dev libnghttp2-dev libssl-dev
 
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            sudo dpkg --add-architecture arm64
+            sudo sed -i 's/deb http/deb [arch=amd64] http/g' /etc/apt/sources.list
+            echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs) main universe" | sudo tee /etc/apt/sources.list.d/arm64.list
+            sudo apt-get update -y || true
+            # Install arm64 dev libraries as needed
+          fi
+
           pnpm install --ignore-scripts
+          
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            export CC=aarch64-linux-gnu-gcc
+            export CXX=aarch64-linux-gnu-g++
+            export npm_config_arch=arm64
+          fi
+          
           pnpm run build:addon
 
-      - name: 📁 Stage .node files
+      - name: Verify and stage .node files
         run: |
+          if [ ! -d "build/Release" ] || [ -z "$(ls -A build/Release/*.node 2>/dev/null)" ]; then
+            echo "Error: No .node files found in build/Release/"
+            exit 1
+          fi
+          
           mkdir -p prebuilds
-          cp build/Release/*.node prebuilds/
+          cp -v build/Release/*.node prebuilds/
+          ls -lah prebuilds/
 
       - uses: actions/upload-artifact@v4
         with:
           name: linux-${{ matrix.arch }}
           path: prebuilds/
+          if-no-files-found: error
 
   release:
     name: 🚀 Create GitHub Release & Publish to npm
@@ -66,33 +101,68 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          check-latest: true
+          registry-url: 'https://registry.npmjs.org'
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 10
+
       - uses: actions/download-artifact@v4
         with:
           path: ./artifacts
 
-      - name: 🗜️ Pack prebuild tarballs
+      - name: Pack prebuild tarballs
         run: |
           set -e
           mkdir -p dist
+          
           for arch in x64 arm64; do
             src="artifacts/linux-$arch"
-            [ -d "$src" ] || (echo "Missing artifact: $src" && exit 1)
+            if [ ! -d "$src" ]; then
+              echo "Missing artifact: $src"
+              exit 1
+            fi
+            
+            if [ -z "$(ls -A $src)" ]; then
+              echo "Empty artifact directory: $src"
+              exit 1
+            fi
+            
             tar -czf "dist/prebuild-Linux-$arch.tar.gz" -C "$src" .
+            echo "Created prebuild-Linux-$arch.tar.gz"
           done
-          ls -lah dist
+          
+          ls -lah dist/
 
-      - name: 🧾 Create/Update GitHub Release with assets
+      - name: Organize prebuilds for npm package
+        run: |
+          mkdir -p prebuilds
+          cp -r artifacts/linux-*/* prebuilds/ || true
+          ls -lah prebuilds/ || true
+
+      - name: Create/Update GitHub Release with assets
         uses: softprops/action-gh-release@v1
         with:
           files: "dist/prebuild-Linux-*.tar.gz"
           draft: false
           prerelease: false
+          generate_release_notes: true
 
-      - name: 🔐 Configure npm auth
+      - name: Configure npm auth
         run: |
-          npm config set //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}
-          npm config set registry https://registry.npmjs.org/
+          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
           npm whoami
 
-      - name: 📦 Publish to npm
-        run: npm publish --access public
+      - name: Publish to npm
+        run: |
+          # Ensure package.json exists
+          if [ ! -f "package.json" ]; then
+            echo "package.json not found"
+            exit 1
+          fi
+          
+          npm publish --access public
