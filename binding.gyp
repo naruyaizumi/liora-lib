@@ -1,60 +1,50 @@
 {
+  "variables": {
+    "common_cflags_cc": [
+      "-std=c++20",
+      "-O3",
+      "-flto=auto",
+      "-fuse-linker-plugin",
+      "-funroll-loops",
+      "-fomit-frame-pointer",
+      "-fdata-sections",
+      "-ffunction-sections",
+      "-fexceptions",
+      "-Wno-deprecated-declarations",
+      "-Wno-reorder",
+      "-Wno-unused-variable",
+      "-Wno-unused-parameter",
+      "-Wno-sign-compare"
+    ],
+    "common_ldflags": [
+      "-Wl,--as-needed",
+      "-Wl,--gc-sections"
+    ],
+    "common_includes": [
+      "<!@(node -p \"require('node-addon-api').include\")",
+      "/usr/include",
+      "/usr/local/include"
+    ]
+  },
+
   "targets": [
     {
       "target_name": "cron",
       "sources": ["src/cron.cpp"],
-      "include_dirs": ["<!@(node -p \"require('node-addon-api').include\")"],
+      "include_dirs": ["<@(common_includes)"],
       "dependencies": ["<!(node -p \"require('node-addon-api').gyp\")"],
-      "cflags_cc": [
-        "-std=c++20",
-        "-O3",
-        "-march=native",
-        "-flto=auto",
-        "-fuse-linker-plugin",
-        "-funroll-loops",
-        "-fomit-frame-pointer",
-        "-fdata-sections",
-        "-ffunction-sections",
-        "-fexceptions",
-        "-Wno-deprecated-declarations",
-        "-Wno-reorder",
-        "-Wno-unused-variable",
-        "-Wno-unused-parameter",
-        "-Wno-sign-compare"
-      ],
-      "defines": ["NAPI_CPP_EXCEPTIONS"],
-      "ldflags": [
-        "-Wl,--as-needed",
-        "-Wl,--gc-sections"
-      ]
+      "cflags_cc": ["<@(common_cflags_cc)"],
+      "ldflags": ["<@(common_ldflags)"],
+      "defines": ["NAPI_CPP_EXCEPTIONS"]
     },
     {
       "target_name": "sticker",
       "sources": ["src/sticker.cpp"],
-      "include_dirs": ["<!@(node -p \"require('node-addon-api').include\")"],
+      "include_dirs": ["<@(common_includes)"],
       "dependencies": ["<!(node -p \"require('node-addon-api').gyp\")"],
-      "cflags_cc": [
-        "-std=c++20",
-        "-O3",
-        "-march=native",
-        "-flto=auto",
-        "-fuse-linker-plugin",
-        "-funroll-loops",
-        "-fomit-frame-pointer",
-        "-fdata-sections",
-        "-ffunction-sections",
-        "-fexceptions",
-        "-Wno-deprecated-declarations",
-        "-Wno-reorder",
-        "-Wno-unused-variable",
-        "-Wno-unused-parameter",
-        "-Wno-sign-compare"
-      ],
+      "cflags_cc": ["<@(common_cflags_cc)"],
+      "ldflags": ["<@(common_ldflags)"],
       "defines": ["NAPI_CPP_EXCEPTIONS"],
-      "ldflags": [
-        "-Wl,--as-needed",
-        "-Wl,--gc-sections"
-      ],
       "libraries": [
         "-lwebp",
         "-lwebpmux",
@@ -69,30 +59,11 @@
     {
       "target_name": "converter",
       "sources": ["src/converter.cpp"],
-      "include_dirs": ["<!@(node -p \"require('node-addon-api').include\")"],
+      "include_dirs": ["<@(common_includes)"],
       "dependencies": ["<!(node -p \"require('node-addon-api').gyp\")"],
-      "cflags_cc": [
-        "-std=c++20",
-        "-O3",
-        "-march=native",
-        "-flto=auto",
-        "-fuse-linker-plugin",
-        "-funroll-loops",
-        "-fomit-frame-pointer",
-        "-fdata-sections",
-        "-ffunction-sections",
-        "-fexceptions",
-        "-Wno-deprecated-declarations",
-        "-Wno-reorder",
-        "-Wno-unused-variable",
-        "-Wno-unused-parameter",
-        "-Wno-sign-compare"
-      ],
+      "cflags_cc": ["<@(common_cflags_cc)"],
+      "ldflags": ["<@(common_ldflags)"],
       "defines": ["NAPI_CPP_EXCEPTIONS"],
-      "ldflags": [
-        "-Wl,--as-needed",
-        "-Wl,--gc-sections"
-      ],
       "libraries": [
         "-lavformat",
         "-lavcodec",
@@ -104,26 +75,13 @@
     {
       "target_name": "fetch",
       "sources": ["src/fetch.cpp"],
-      "include_dirs": ["<!@(node -p \"require('node-addon-api').include\")"],
+      "include_dirs": ["<@(common_includes)"],
       "dependencies": ["<!(node -p \"require('node-addon-api').gyp\")"],
       "cflags_cc": [
-        "-std=c++20",
-        "-O3",
-        "-march=native",
-        "-flto=auto",
-        "-fuse-linker-plugin",
-        "-funroll-loops",
-        "-fomit-frame-pointer",
-        "-fdata-sections",
-        "-ffunction-sections",
-        "-fexceptions",
-        "-Wno-deprecated-declarations",
-        "-Wno-unused-but-set-variable",
-        "-Wno-reorder",
-        "-Wno-unused-variable",
-        "-Wno-unused-parameter",
-        "-Wno-sign-compare"
+        "<@(common_cflags_cc)",
+        "-Wno-unused-but-set-variable"
       ],
+      "ldflags": ["<@(common_ldflags)"],
       "defines": [
         "NAPI_CPP_EXCEPTIONS",
         "CURL_STATICLIB",
@@ -132,10 +90,6 @@
         "CURL_DISABLE_DICT",
         "CURL_DISABLE_TFTP",
         "CURL_DISABLE_RTSP"
-      ],
-      "ldflags": [
-        "-Wl,--as-needed",
-        "-Wl,--gc-sections"
       ],
       "libraries": [
         "-lcurl",

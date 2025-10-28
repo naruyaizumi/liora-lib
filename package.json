@@ -1,11 +1,11 @@
 {
 	"name": "liora-lib",
-	"version": "1.2.4",
+	"version": "1.2.5",
 	"description": "Native utility library for Liora WhatsApp Bot",
 	"type": "module",
 	"main": "export.js",
 	"exports": {
-		".": "export.js"
+		".": "./export.js"
 	},
 	"files": [
 		"core.js",

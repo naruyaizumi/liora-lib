@@ -7,10 +7,10 @@ const require = createRequire(import.meta.url);
 
 function loadAddon(name) {
     try {
-        return require(path.join(__dirname, `../build/Release/${name}.node`));
+        return require(path.join(__dirname, `./build/Release/${name}.node`));
     } catch {
         try {
-            return require(path.join(__dirname, `../build/Debug/${name}.node`));
+            return require(path.join(__dirname, `./build/Debug/${name}.node`));
         } catch {
             throw new Error(`${name} native addon is not built.\n› Run: npm run build`);
         }

@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repo = "naruyaizumi/liora-lib";
-const outDir = path.join(__dirname, "../build/Release");
+const outDir = path.join(__dirname, "./build/Release");
 const MAX_DOWNLOAD_SIZE = 100 * 1024 * 1024;
 
 function getArch() {
