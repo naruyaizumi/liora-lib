@@ -10,14 +10,17 @@ permissions:
 
 jobs:
   build:
-    name: Build on ubuntu-24.04 (x64)
-    runs-on: ubuntu-24.04
+    name: Build on ${{ matrix.os }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        arch: [x64]
         include:
-          - arch: x64
+          - os: ubuntu-24.04
+            arch: x64
+            npm_arch: x64
+          - os: debian:12.12
+            arch: x64
             npm_arch: x64
 
     steps:
@@ -34,8 +37,8 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y \
+          apt-get update -y
+          apt-get install -y \
             build-essential pkg-config cmake python3 python3-dev \
             ffmpeg imagemagick \
             libavformat-dev libavcodec-dev libavutil-dev \
@@ -50,7 +53,7 @@ jobs:
 
       - name: Build native addons
         env:
-          npm_config_arch: x64
+          npm_config_arch: ${{ matrix.npm_arch }}
         run: |
           export CXXFLAGS="-O3 -fexceptions -fPIC -std=c++20"
           export LDFLAGS="-Wl,--as-needed -Wl,--gc-sections"
@@ -60,7 +63,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-x64
+          name: ${{ matrix.os }}-${{ matrix.arch }}
           path: build/Release/
           if-no-files-found: error
 
@@ -88,18 +91,20 @@ jobs:
         with:
           path: ./artifacts
 
-      - name: Pack prebuild tarball
+      - name: Pack prebuild tarballs
         run: |
           mkdir -p dist
-          src="artifacts/linux-x64"
-          tar -czf "dist/build-Linux-x64.tar.gz" -C "$src" .
-          echo "✔ Packed build-Linux-x64.tar.gz"
+          for dir in artifacts/*; do
+            osarch=$(basename "$dir")
+            tar -czf "dist/build-${osarch}.tar.gz" -C "$dir" .
+            echo "✔ Packed build-${osarch}.tar.gz"
+          done
           ls -lah dist/
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v1
         with:
-          files: dist/build-Linux-x64.tar.gz
+          files: dist/*.tar.gz
           generate_release_notes: true
 
       - name: Publish to npm

@@ -69,45 +69,80 @@ const textDecoder = new TextDecoder("utf-8");
 function fetch(url, options = {}) {
     if (typeof url !== "string") throw new TypeError("fetch() requires a URL string");
     if (!fetchNative) throw new Error("Native fetch addon not loaded");
+    
     const nativeFunc = fetchNative.startFetch || fetchNative.fetch;
     if (typeof nativeFunc !== "function") throw new Error("No valid native fetch entrypoint");
+    
     const exec =
         typeof fetchNative.startFetch === "function"
             ? fetchNative.startFetch(url, options)
             : { promise: nativeFunc(url, options) };
+    
     const promise = exec.promise || exec;
+    
     return promise
         .then((res) => {
-            if (!res || typeof res !== "object")
+            if (!res || typeof res !== "object") {
                 throw new Error("Invalid response from native fetch");
-            let body = res.body;
-            if (Array.isArray(body)) {
-                body = Buffer.from(body.buffer || body);
-            } else if (!(body instanceof Buffer)) {
-                body = Buffer.isBuffer(body) ? body : Buffer.from(body || []);
             }
+            
+            let body;
+            
+            if (Buffer.isBuffer(res.body)) {
+                body = res.body;
+            } else if (res.body instanceof ArrayBuffer) {
+                body = Buffer.from(new Uint8Array(res.body));
+            } else if (ArrayBuffer.isView(res.body)) {
+                body = Buffer.from(res.body.buffer, res.body.byteOffset, res.body.byteLength);
+            } else if (Array.isArray(res.body)) {
+                if (res.body.buffer && res.body.buffer instanceof ArrayBuffer) {
+                    body = Buffer.from(res.body.buffer);
+                } else {
+                    body = Buffer.from(res.body);
+                }
+            } else {
+                body = Buffer.from(res.body || []);
+            }
+            
             const cachedTextRef = { val: null };
+            
             const out = {
-                ...res,
+                status: res.status,
+                statusText: res.statusText || "",
+                headers: res.headers || {},
+                url: res.url || url,
                 ok: res.status >= 200 && res.status < 300,
+                body: body,
                 abort: exec.abort,
                 arrayBuffer() {
+                    return Promise.resolve(body.buffer.slice(
+                        body.byteOffset,
+                        body.byteOffset + body.byteLength
+                    ));
+                },
+                buffer() {
                     return Promise.resolve(body);
                 },
                 text() {
-                    if (cachedTextRef.val === null) cachedTextRef.val = textDecoder.decode(body);
+                    if (cachedTextRef.val === null) {
+                        cachedTextRef.val = textDecoder.decode(body);
+                    }
                     return Promise.resolve(cachedTextRef.val);
                 },
                 json() {
-                    try {
-                        if (cachedTextRef.val === null)
-                            cachedTextRef.val = textDecoder.decode(body);
-                        return Promise.resolve(JSON.parse(cachedTextRef.val));
-                    } catch (e) {
-                        return Promise.reject(new Error(`Invalid JSON: ${e.message}`));
-                    }
+                    return new Promise((resolve, reject) => {
+                        try {
+                            if (cachedTextRef.val === null) {
+                                cachedTextRef.val = textDecoder.decode(body);
+                            }
+                            resolve(JSON.parse(cachedTextRef.val));
+                        } catch (e) {
+                            reject(new Error(`Invalid JSON: ${e.message}`));
+                        }
+                    });
                 },
             };
+            
             return out;
         })
         .catch((err) => {
