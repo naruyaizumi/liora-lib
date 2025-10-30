@@ -29,15 +29,6 @@
 
   "targets": [
     {
-      "target_name": "cron",
-      "sources": ["src/cron.cpp"],
-      "include_dirs": ["<@(common_includes)"],
-      "dependencies": ["<!(node -p \"require('node-addon-api').gyp\")"],
-      "cflags_cc": ["<@(common_cflags_cc)"],
-      "ldflags": ["<@(common_ldflags)"],
-      "defines": ["NAPI_CPP_EXCEPTIONS"]
-    },
-    {
       "target_name": "sticker",
       "sources": ["src/sticker.cpp"],
       "include_dirs": ["<@(common_includes)"],

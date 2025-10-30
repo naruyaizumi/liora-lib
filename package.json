@@ -1,6 +1,6 @@
 {
 	"name": "liora-lib",
-	"version": "1.2.6",
+	"version": "1.2.7",
 	"description": "Native utility library for Liora WhatsApp Bot",
 	"type": "module",
 	"main": "export.js",
@@ -35,7 +35,6 @@
 	"keywords": [
 		"naruyaizumi",
 		"liora-lib",
-		"cron",
 		"scheduler",
 		"convert",
 		"ffmpeg",

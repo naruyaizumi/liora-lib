@@ -17,38 +17,6 @@ function loadAddon(name) {
     }
 }
 
-const cronNative = loadAddon("cron");
-const jobs = new Map();
-
-class CronJob {
-    constructor(name, handle) {
-        this._name = name;
-        this._handle = handle;
-        if (this._handle?.start) this._handle.start();
-    }
-    stop() {
-        if (this._handle?.stop) {
-            this._handle.stop();
-            this._handle = null;
-            jobs.delete(this._name);
-        }
-    }
-    isRunning() {
-        return this._handle?.isRunning?.() ?? false;
-    }
-    secondsToNext() {
-        return this._handle?.secondsToNext?.() ?? -1;
-    }
-}
-
-function schedule(exprOrName, callback, options = {}) {
-    if (typeof callback !== "function") throw new Error("schedule() requires a callback function");
-    const handle = cronNative.schedule(exprOrName, callback, options);
-    const job = new CronJob(exprOrName, handle);
-    jobs.set(exprOrName, job);
-    return job;
-}
-
 const stickerNative = loadAddon("sticker");
 
 function isWebP(buf) {

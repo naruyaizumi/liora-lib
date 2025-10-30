@@ -10,7 +10,7 @@
 All prebuilt binaries are compiled for **Ubuntu 24.04 LTS (x64)**. Errors outside this environment are **not library bugs** unless dependencies are properly installed.
 
 **Liora-lib** is a high-performance Node.js native addon providing multimedia and system-level utilities.  
-It exposes modules for cron scheduling, media conversion, sticker encoding, EXIF metadata handling, and optimized HTTP fetching — all implemented in C++ with an ES module interface.
+It exposes modules for media conversion, sticker encoding, EXIF metadata handling, and optimized HTTP fetching — all implemented in C++ with an ES module interface.
 
 ---
 
@@ -20,7 +20,6 @@ It exposes modules for cron scheduling, media conversion, sticker encoding, EXIF
 - 📦 **Prebuilt x64 binaries** with automatic fallback to source compilation  
 - 🎬 **FFmpeg-powered converter** for audio/video transcoding  
 - 🎨 **Sticker toolkit** with WebP encoding and EXIF metadata injection  
-- ⏰ **Native cron scheduler** implemented in C++  
 - 🌐 **High-performance HTTP client** with native fetch() implementation  
 - 🔧 **Zero JavaScript overhead** for performance-critical operations
 
@@ -49,6 +48,9 @@ npm install -g node-gyp
 ```bash
 # FFmpeg is REQUIRED for convert() and sticker() functions
 sudo apt install -y ffmpeg libavcodec-dev libavformat-dev libavutil-dev libswscale-dev
+
+# Additional libraries for full functionality
+sudo apt install -y libcurl4-openssl-dev libwebp-dev
 
 # Verify FFmpeg installation
 ffmpeg -version
@@ -93,11 +95,10 @@ npm rebuild liora-lib --build-from-source
 
 | Module | Description | Dependencies |
 |---------|--------------|--------------|
-| `convert` | High-performance media converter using FFmpeg backend | FFmpeg |
-| `sticker` | WebP encoder and EXIF injector for animated/static stickers | FFmpeg |
-| `cron` | Lightweight native scheduler with cron expression support | None |
-| `fetch` | Native HTTP/HTTPS client with optimized performance | None |
-| `addExif` | EXIF metadata injector for WebP images | None |
+| `convert` | High-performance media converter using FFmpeg backend | ffmpeg, libavcodec |
+| `sticker` | WebP encoder and EXIF injector for animated/static stickers | ffmpeg, libwebp |
+| `fetch` | Native HTTP/HTTPS client with optimized performance | libcurl |
+| `addExif` | EXIF metadata injector for WebP images | libwebp |
 
 ---
 
@@ -109,7 +110,6 @@ All examples use ES modules and are compatible with Node.js 22+.
 
 ```js
 import {
-  schedule,
   addExif,
   sticker,
   convert,
@@ -120,31 +120,33 @@ import fs from "fs/promises"; // Use promises API
 
 ---
 
-### Example 1: Native Cron Scheduler
+### Example 1: Basic Media Conversion
 
-Create a recurring job that runs every 10 seconds:
+Convert an MP3 file to Opus format:
 
 ```js
-// Schedule a job using cron syntax
-const job = schedule("*/10 * * * * *", () => {
-  const now = new Date().toLocaleTimeString();
-  console.log(`[Cron] Triggered at ${now}`);
-});
-
-// Stop the job after 30 seconds
-setTimeout(() => {
-  console.log("Stopping cron job...");
-  job.stop();
+try {
+  // Read input audio file
+  const inputAudio = await fs.readFile("./input.mp3");
   
-  console.log("Job running?", job.isRunning()); // false
-}, 30000);
-
-// Check status
-console.log("Seconds until next run:", job.secondsToNext());
-console.log("Is running:", job.isRunning()); // true
+  // Convert to Opus format
+  const outputBuffer = convert(inputAudio, {
+    format: "opus",
+    bitrate: "64k"
+  });
+  
+  // Save the converted file
+  await fs.writeFile("./output.opus", outputBuffer);
+  console.log("✅ Conversion completed successfully");
+} catch (error) {
+  console.error("❌ Conversion failed:", error.message);
+  
+  // Check for common issues
+  if (error.message.includes("FFmpeg")) {
+    console.error("💡 Solution: Install FFmpeg with 'sudo apt install ffmpeg'");
+  }
+}
 ```
-
-**Cron expression format:** `second minute hour day month weekday`
 
 ---
 
@@ -172,7 +174,11 @@ try {
   await fs.writeFile("./output.webp", webpBuffer);
   console.log("🖼️ Sticker saved as output.webp");
 } catch (error) {
-  console.error("Sticker creation failed:", error.message);
+  console.error("❌ Sticker creation failed:", error.message);
+  
+  if (error.message.includes("Invalid image")) {
+    console.error("💡 Ensure input is a valid image file (PNG, JPG, GIF, etc.)");
+  }
 }
 ```
 
@@ -196,13 +202,17 @@ try {
   await fs.writeFile("./sticker_with_exif.webp", withExif);
   console.log("🧩 EXIF metadata injected successfully");
 } catch (error) {
-  console.error("EXIF injection failed:", error.message);
+  console.error("❌ EXIF injection failed:", error.message);
+  
+  if (error.message.includes("Invalid WebP")) {
+    console.error("💡 Input must be a valid WebP file");
+  }
 }
 ```
 
 ---
 
-### Example 4: Audio/Video Conversion
+### Example 4: Audio/Video Conversion with Advanced Options
 
 Convert media files with FFmpeg backend:
 
@@ -223,8 +233,14 @@ try {
   await fs.writeFile("./sample_converted.opus", converted);
   console.log("🎵 Audio converted successfully");
 } catch (error) {
-  console.error("Conversion failed:", error.message);
-  // Common: "FFmpeg not found" - install FFmpeg
+  console.error("❌ Conversion failed:", error.message);
+  
+  // Common error handling
+  if (error.message.includes("FFmpeg not found")) {
+    console.error("💡 Install FFmpeg: sudo apt install ffmpeg");
+  } else if (error.message.includes("Unsupported format")) {
+    console.error("💡 Check that the input file is a valid audio/video format");
+  }
 }
 ```
 
@@ -253,7 +269,13 @@ try {
   console.log("Stars:", data.stargazers_count);
   
 } catch (error) {
-  console.error("Fetch failed:", error.message);
+  console.error("❌ Fetch failed:", error.message);
+  
+  if (error.message.includes("timeout")) {
+    console.error("💡 Request timed out, try increasing timeout option");
+  } else if (error.message.includes("DNS")) {
+    console.error("💡 DNS resolution failed, check your internet connection");
+  }
 }
 ```
 
@@ -271,14 +293,23 @@ try {
     },
     body: JSON.stringify({
       message: "Hello from native fetch!"
-    })
+    }),
+    timeout: 10000 // 10 second timeout
   });
   
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  
   const result = await response.json();
-  console.log("Response:", result);
+  console.log("✅ Response:", result);
   
 } catch (error) {
-  console.error("POST failed:", error.message);
+  console.error("❌ POST failed:", error.message);
+  
+  if (error.message.includes("HTTP error")) {
+    console.error("💡 Server returned an error status code");
+  }
 }
 ```
 
@@ -290,61 +321,31 @@ try {
 try {
   const response = await fetch("https://example.com/image.jpg");
   
+  if (!response.ok) {
+    throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+  }
+  
   // Get as ArrayBuffer
   const buffer = await response.arrayBuffer();
   
   // Convert to Node.js Buffer and save
   await fs.writeFile("./downloaded.jpg", Buffer.from(buffer));
-  console.log("📥 Image downloaded");
+  console.log("📥 Image downloaded successfully");
   
 } catch (error) {
-  console.error("Download failed:", error.message);
+  console.error("❌ Download failed:", error.message);
+  
+  if (error.message.includes("404")) {
+    console.error("💡 File not found on server");
+  } else if (error.message.includes("timeout")) {
+    console.error("💡 Download timed out, try a smaller file or increase timeout");
+  }
 }
 ```
 
 ---
 
 ## API Reference
-
-### `schedule(expression, callback, options?)`
-
-Creates a native cron job scheduler.
-
-**Parameters:**
-
-| Param | Type | Required | Description |
-|:------|:-----|:---------|:------------|
-| `expression` | `string` | Yes | Cron expression (6 fields: `* * * * * *`) |
-| `callback` | `function` | Yes | Function to execute on trigger |
-| `options` | `object` | No | Additional configuration |
-
-**Options:**
-
-| Option | Type | Default | Description |
-|:-------|:-----|:--------|:------------|
-| `timezone` | `string` | `"UTC"` | Timezone (e.g., `"America/New_York"`) |
-| `immediate` | `boolean` | `false` | Run immediately on creation |
-| `once` | `boolean` | `false` | Run only once then stop |
-
-**Returns:** `CronJob` instance
-
-**CronJob Methods:**
-
-- `stop()` - Stops the scheduled job
-- `isRunning()` - Returns `boolean` indicating if job is active
-- `secondsToNext()` - Returns `number` of seconds until next execution
-
-**Example:**
-
-```js
-const job = schedule("0 0 * * * *", () => {
-  console.log("Runs every hour");
-}, { timezone: "Asia/Tokyo" });
-
-job.stop(); // Stop the job
-```
-
----
 
 ### `addExif(buffer, metadata?)`
 
@@ -366,6 +367,10 @@ Injects EXIF metadata into a WebP image buffer.
 | `emojis` | `string[]` | `[]` | Associated emoji array |
 
 **Returns:** `Buffer` - New WebP with EXIF data
+
+**Throws:**
+- `TypeError` - If buffer is not a valid Buffer
+- `Error` - If input is not a valid WebP file
 
 **Example:**
 
@@ -405,15 +410,21 @@ Converts images or videos into WebP stickers with optional EXIF metadata.
 
 **Returns:** `Buffer` - WebP sticker with optional EXIF
 
+**Throws:**
+- `TypeError` - If input is not a valid Buffer
+- `Error` - If FFmpeg is not installed or accessible
+- `Error` - If input format is not supported
+
 **Example:**
 
 ```js
 const img = await fs.readFile("photo.jpg");
-const sticker = sticker(img, {
+const stickerBuffer = sticker(img, {
   crop: true,
   quality: 95,
   packName: "Summer 2025"
 });
+await fs.writeFile("summer.webp", stickerBuffer);
 ```
 
 ---
@@ -442,6 +453,12 @@ Converts audio/video files using native FFmpeg bindings.
 
 **Returns:** `Buffer` - Converted media
 
+**Throws:**
+- `TypeError` - If input is not a valid Buffer
+- `Error` - If FFmpeg is not installed
+- `Error` - If output format is not supported
+- `Error` - If input file is corrupted or invalid
+
 **Example:**
 
 ```js
@@ -451,6 +468,7 @@ const opus = convert(audio, {
   bitrate: "128k",
   ptt: true // WhatsApp compatible
 });
+await fs.writeFile("song.opus", opus);
 ```
 
 ---
@@ -463,33 +481,39 @@ Performs native HTTP/HTTPS requests with Fetch API compatibility.
 
 | Param | Type | Required | Description |
 |:------|:-----|:---------|:------------|
-| `url` | `string` | Yes | Target URL |
+| `url` | `string` | Yes | Target URL (must be valid HTTP/HTTPS) |
 | `options` | `object` | No | Request options |
 
 **Options:**
 
 | Option | Type | Default | Description |
 |:--------|:-----|:--------|:------------|
-| `method` | `string` | `"GET"` | HTTP method (GET, POST, PUT, DELETE, etc.) |
-| `headers` | `object` | `{}` | Request headers |
-| `body` | `string\|Buffer` | `undefined` | Request body |
-| `timeout` | `number` | `30000` | Timeout in milliseconds |
+| `method` | `string` | `"GET"` | HTTP method (GET, POST, PUT, DELETE, PATCH, etc.) |
+| `headers` | `object` | `{}` | Request headers (key-value pairs) |
+| `body` | `string\|Buffer` | `undefined` | Request body (required for POST/PUT) |
+| `timeout` | `number` | `30000` | Timeout in milliseconds (0 = no timeout) |
 
 **Returns:** `Promise<Response>`
 
 **Response Methods:**
 
-- `.json()` - Parse as JSON
-- `.text()` - Get as text string
-- `.arrayBuffer()` - Get as ArrayBuffer
-- `.abort()` - Abort the request
+- `.json()` → `Promise<any>` - Parse response as JSON
+- `.text()` → `Promise<string>` - Get response as text string
+- `.arrayBuffer()` → `Promise<ArrayBuffer>` - Get response as ArrayBuffer
+- `.abort()` → `void` - Abort the ongoing request
 
 **Response Properties:**
 
-- `.status` - HTTP status code
-- `.ok` - Boolean (true if 200-299)
-- `.headers` - Response headers object
-- `.statusText` - Status message
+- `.status` → `number` - HTTP status code (200, 404, etc.)
+- `.ok` → `boolean` - True if status is 200-299
+- `.headers` → `object` - Response headers as key-value object
+- `.statusText` → `string` - Status message ("OK", "Not Found", etc.)
+
+**Throws:**
+- `TypeError` - If URL is invalid
+- `Error` - If request times out
+- `Error` - If network error occurs
+- `Error` - If DNS resolution fails
 
 **Example:**
 
@@ -504,6 +528,8 @@ const res = await fetch("https://api.example.com/data", {
 if (res.ok) {
   const data = await res.json();
   console.log(data);
+} else {
+  console.error(`HTTP Error: ${res.status} ${res.statusText}`);
 }
 ```
 
@@ -511,10 +537,10 @@ if (res.ok) {
 
 ## Performance Notes
 
-- **Cron scheduler:** Native C++ implementation with microsecond precision
 - **Media conversion:** Direct FFmpeg API calls, 3-5x faster than CLI spawning
 - **HTTP fetch:** Native libcurl bindings, 2-3x faster than Node's `http` module
 - **Sticker encoding:** Hardware-accelerated when available
+- **Memory efficiency:** Streaming processing for large files (>100MB)
 
 ---
 
@@ -523,9 +549,18 @@ if (res.ok) {
 | Node.js Version | Supported | Notes |
 |:----------------|:----------|:------|
 | 24.x | ✅ Yes | Recommended |
-| 22.x | ✅ Yes | Tested |
-| 20.x | ⚠️ Partial | May require rebuild |
-| -20 | ❌ No | Native module incompatibility |
+| 22.x | ✅ Yes | Fully tested |
+| 20.x | ⚠️ Partial | May require manual rebuild |
+| < 20 | ❌ No | Native module API incompatibility |
+
+| Operating System | Supported | Notes |
+|:-----------------|:----------|:------|
+| Ubuntu 24.04 LTS | ✅ Yes | Primary target |
+| Ubuntu 22.04 LTS | ⚠️ Partial | Requires rebuild from source |
+| Debian 12+ | ⚠️ Partial | Requires rebuild from source |
+| Other Linux | ❌ No | Not officially supported |
+| Windows | ❌ No | Linux-only library |
+| macOS | ❌ No | Linux-only library |
 
 ---
 
@@ -533,31 +568,62 @@ if (res.ok) {
 
 ### Error: "FFmpeg not found"
 
+**Cause:** FFmpeg is not installed or not in system PATH
+
+**Solution:**
 ```bash
-sudo apt install ffmpeg
+sudo apt install ffmpeg libavcodec-dev libavformat-dev libavutil-dev
 ffmpeg -version
 ```
 
 ### Error: "Cannot find module 'liora-lib'"
 
+**Cause:** Prebuilt binary is incompatible with your system
+
+**Solution:**
 ```bash
+# Install build dependencies
+sudo apt install build-essential python3
+
+# Rebuild from source
 npm rebuild liora-lib --build-from-source
 ```
 
 ### Error: "node-gyp rebuild failed"
 
+**Cause:** Missing build tools
+
+**Solution:**
 ```bash
-sudo apt install build-essential python3
+sudo apt install build-essential python3 git
 npm install -g node-gyp
 npm rebuild liora-lib
 ```
 
 ### Segmentation fault or crashes
 
-- Ensure you're on Ubuntu 24.04 LTS
-- Verify FFmpeg installation: `ffmpeg -version`
-- Check Node.js version: `node -v` (must be 22+)
-- Report with full error log and system info
+**Possible causes:**
+- Not running on Ubuntu 24.04 LTS
+- Missing runtime dependencies
+- Corrupted input files
+- Node.js version mismatch
+
+**Solutions:**
+1. Verify system: `lsb_release -a` (should show Ubuntu 24.04)
+2. Check FFmpeg: `ffmpeg -version`
+3. Check Node.js: `node -v` (must be 22.0.0+)
+4. Validate input files before processing
+5. Report issue with full error log and system info
+
+### Error: "GLIBC version too old"
+
+**Cause:** Your system uses an older version of GLIBC than the prebuilt binary requires
+
+**Solution:**
+```bash
+# Rebuild from source
+npm rebuild liora-lib --build-from-source
+```
 
 ---
 
@@ -566,18 +632,23 @@ npm rebuild liora-lib
 Licensed under the **Apache-2.0 License**.  
 © 2025 Naruya Izumi
 
+See [LICENSE](./LICENSE) file for details.
+
 ---
 
-## Support
+## Acknowledgments
 
-- **Issues:** [GitHub Issues](https://github.com/naruyaizumi/liora-lib/issues)
-- **Documentation:** [Full API Docs](https://github.com/naruyaizumi/liora-lib/wiki)
-- **Discussions:** [GitHub Discussions](https://github.com/naruyaizumi/liora-lib/discussions)
+- **FFmpeg Team** - For the powerful multimedia framework
+- **libcurl Team** - For the robust HTTP client library
+- **WebP Team** - For the efficient image format
+- **Node.js Community** - For the excellent native addon APIs
 
 ---
 
 <div align="center">
 
 **Made with ❤️ for high-performance Node.js applications**
+
+[⭐ Star on GitHub](https://github.com/naruyaizumi/liora-lib) | [🐛 Report Bug](https://github.com/naruyaizumi/liora-lib/issues)
 
 </div>
