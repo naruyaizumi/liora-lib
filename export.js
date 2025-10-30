@@ -117,7 +117,6 @@ function fetch(url, options = {}) {
 }
 
 export {
-    schedule,
     addExif,
     sticker,
     convert,
