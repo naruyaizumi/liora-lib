@@ -12,6 +12,7 @@ jobs:
   build:
     name: Build on ${{ matrix.os }} (${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
     strategy:
       fail-fast: false
       matrix:
@@ -19,24 +20,54 @@ jobs:
           - os: ubuntu-24.04
             arch: x64
             npm_arch: x64
+            platform: linux-x64
+            container: null
           - os: ubuntu-latest
             arch: x64
             npm_arch: x64
-            container: debian:12.12
+            platform: linux-x64-debian12
+            container: debian:12
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install system dependencies (Debian/Ubuntu in container)
+        if: matrix.container != null
+        run: |
+          apt-get update -y
+          apt-get install -y \
+            build-essential pkg-config cmake python3 python3-dev \
+            ffmpeg imagemagick curl ca-certificates gnupg \
+            libavformat-dev libavcodec-dev libavutil-dev \
+            libswresample-dev libswscale-dev \
+            libwebp-dev libpng-dev libjpeg-dev zlib1g-dev \
+            libfreetype6-dev libharfbuzz-dev libpango1.0-dev \
+            libgif-dev libopus-dev libvpx-dev \
+            libcurl4-openssl-dev libnghttp2-dev libssl-dev
+
+      - name: Setup Node.js in container
+        if: matrix.container != null
+        run: |
+          mkdir -p /etc/apt/keyrings
+          curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+          echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_24.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list
+          apt-get update -y
+          apt-get install -y nodejs
+          npm install -g pnpm@10
+
       - uses: actions/setup-node@v4
+        if: matrix.container == null
         with:
           node-version: 24
           check-latest: true
 
       - uses: pnpm/action-setup@v3
+        if: matrix.container == null
         with:
           version: 10
 
-      - name: Install system dependencies
+      - name: Install system dependencies (Ubuntu host)
+        if: matrix.container == null
         run: |
           sudo apt-get update -y
           sudo apt-get install -y \
@@ -49,6 +80,13 @@ jobs:
             libgif-dev libopus-dev libvpx-dev \
             libcurl4-openssl-dev libnghttp2-dev libssl-dev
 
+      - name: Verify build environment
+        run: |
+          node --version
+          pnpm --version
+          gcc --version
+          pkg-config --version
+
       - name: Install dependencies
         run: pnpm install --ignore-scripts
 
@@ -60,10 +98,19 @@ jobs:
           export LDFLAGS="-Wl,--as-needed -Wl,--gc-sections"
           pnpm run build:addon
           ls -lah build/Release/
+          
+      - name: Verify build output
+        run: |
+          if [ ! -d "build/Release" ] || [ -z "$(ls -A build/Release)" ]; then
+            echo "Error: No build artifacts found"
+            exit 1
+          fi
+          echo "Build artifacts:"
+          ls -lah build/Release/
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.os }}-${{ matrix.arch }}
+          name: ${{ matrix.platform }}
           path: build/Release/
           if-no-files-found: error
 
@@ -91,21 +138,34 @@ jobs:
         with:
           path: ./artifacts
 
+      - name: Display downloaded artifacts
+        run: |
+          echo "Downloaded artifacts:"
+          ls -lah artifacts/
+          for dir in artifacts/*; do
+            echo "Contents of $(basename "$dir"):"
+            ls -lah "$dir"
+          done
+
       - name: Pack prebuild tarballs
         run: |
           mkdir -p dist
           for dir in artifacts/*; do
-            osarch=$(basename "$dir")
-            tar -czf "dist/build-${osarch}.tar.gz" -C "$dir" .
-            echo "✔ Packed build-${osarch}.tar.gz"
+            if [ -d "$dir" ]; then
+              platform=$(basename "$dir")
+              tar -czf "dist/build-${platform}.tar.gz" -C "$dir" .
+              echo "✔ Packed build-${platform}.tar.gz ($(du -h "dist/build-${platform}.tar.gz" | cut -f1))"
+            fi
           done
+          echo "Final dist contents:"
           ls -lah dist/
 
-      - name: Upload Release Asset
+      - name: Upload Release Assets
         uses: softprops/action-gh-release@v1
         with:
           files: dist/*.tar.gz
           generate_release_notes: true
+          fail_on_unmatched_files: true
 
       - name: Publish to npm
         run: |

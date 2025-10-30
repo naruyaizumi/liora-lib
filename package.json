@@ -1,6 +1,6 @@
 {
 	"name": "liora-lib",
-	"version": "1.2.10",
+	"version": "1.2.11",
 	"description": "Native utility library for Liora WhatsApp Bot",
 	"type": "module",
 	"main": "export.js",
@@ -44,7 +44,8 @@
 		"performance"
 	],
 	"devDependencies": {
-		"node-addon-api": "^8.5.0"
+		"node-addon-api": "^8.5.0",
+		"node-gyp": "^11.4.2"
 	},
-	"packageManager": "pnpm@10.19.0"
+	"packageManager": "pnpm@10.20.0"
 }
