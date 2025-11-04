@@ -13,7 +13,8 @@
 	"files": [
 		"export.js",
 		"export.d.ts",
-		"core.ts",
+		"core.js", 
+		"core.d.ts",
 		"package.json",
 		"README.md",
 		"LICENSE"
@@ -24,7 +25,7 @@
 	"scripts": {
 		"build": "node-gyp configure build",
 		"build:addon": "node-gyp configure build",
-		"install": "ts-node core.ts",
+		"install": "node core.js",
 		"build:ts": "tsc",
 		"prepublishOnly": "pnpm run build:ts"
 	},
@@ -46,14 +47,13 @@
 		"webp",
 		"fetch"
 	],
-	"dependencies": {
-        "ts-node": "^10.9.2"
-    },
 	"devDependencies": {
         "node-addon-api": "^8.5.0",
         "node-gyp": "^11.4.2",
         "typescript": "^5.4.5",
-        "@types/node": "^20.12.12"
+        "@types/node": "^20.12.12",
+        "ts-node": "^10.9.2"
 	},
-	"packageManager": "pnpm@10.20.0"
+	"packageManager": "pnpm@10.20.0",
+    "dependencies": {}
 }
