@@ -1,6 +1,6 @@
 {
 	"name": "liora-lib",
-	"version": "1.3.5",
+	"version": "1.3.6",
 	"description": "Native utility library for Liora WhatsApp Bot",
 	"type": "module",
 	"main": "export.js",
@@ -24,7 +24,7 @@
 	"scripts": {
 		"build": "node-gyp configure build",
 		"build:addon": "node-gyp configure build",
-		"install": "ts-node install.js",
+		"install": "ts-node core.ts",
 		"build:ts": "tsc",
 		"prepublishOnly": "pnpm run build:ts"
 	},
@@ -46,12 +46,14 @@
 		"webp",
 		"fetch"
 	],
+	"dependencies": {
+        "ts-node": "^10.9.2"
+    },
 	"devDependencies": {
         "node-addon-api": "^8.5.0",
         "node-gyp": "^11.4.2",
         "typescript": "^5.4.5",
-        "@types/node": "^20.12.12",
-        "ts-node": "^10.9.2"
+        "@types/node": "^20.12.12"
 	},
 	"packageManager": "pnpm@10.20.0"
 }
