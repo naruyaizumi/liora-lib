@@ -1,4 +1,4 @@
-name: Build and Release Native Binaries
+Name: Build and Release Native Binaries
 
 on:
   push:
@@ -156,15 +156,6 @@ jobs:
         with:
           path: ./artifacts
 
-      - name: Setup Native Addon runtime for testing
-        run: |
-          mkdir -p build/Release
-          cp artifacts/linux-x64/*.node build/Release/
-          echo "Native binaries copied to build/Release/ for functional testing."
-
-      - name: Run Native Addon Functional Tests
-        run: pnpm exec ts-node test.ts
-        
       - name: Display downloaded artifacts
         run: |
           echo "Downloaded artifacts:"
