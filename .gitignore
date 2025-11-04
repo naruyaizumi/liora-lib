@@ -20,3 +20,5 @@ prebuilds/
 npm/
 export.js
 export.d.ts
+core.js
+core.d.ts
