@@ -9,17 +9,24 @@ const repo = "naruyaizumi/liora-lib";
 const outDir = path.join(__dirname, "./build/Release");
 const MAX_DOWNLOAD_SIZE = 100 * 1024 * 1024;
 
-function getArch() {
-  const archMap = { 
+type SupportedArch = 'x64';
+type ProcessArch = NodeJS.Architecture;
+
+function getArch(): SupportedArch {
+  const archMap: Record<SupportedArch, string> = { 
     x64: "x64",
-    arm64: "arm64"
   };
-  const mappedArch = archMap[process.arch];
-  if (!mappedArch) throw new Error(`Unsupported architecture: ${process.arch}`);
-  return mappedArch;
+  
+  const archKey = process.arch as ProcessArch;
+  
+  if (archMap.hasOwnProperty(archKey)) {
+    return archKey as SupportedArch;
+  }
+  
+  throw new Error(`Unsupported architecture: ${process.arch}. Only x64 is supported for prebuilds.`);
 }
 
-function detectDebian() {
+function detectDebian(): boolean {
   try {
     if (!fs.existsSync("/etc/os-release")) return false;
     const info = fs.readFileSync("/etc/os-release", "utf8");
@@ -29,26 +36,29 @@ function detectDebian() {
   }
 }
 
-async function latestTag() {
+async function latestTag(): Promise<string> {
   const res = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
     headers: { "User-Agent": "node", Accept: "application/vnd.github.v3+json" },
   });
   if (!res.ok) throw new Error(`GitHub API error: ${res.status} ${res.statusText}`);
-  const json = await res.json();
+  const json = await res.json() as { tag_name?: string };
   if (!json.tag_name) throw new Error("Release tag not found");
   return json.tag_name;
 }
 
-async function downloadFile(url, dest, retries = 3) {
-  let lastError;
+async function downloadFile(url: string, dest: string, retries: number = 3): Promise<number> {
+  let lastError: unknown;
   for (let i = 1; i <= retries; i++) {
     try {
       const res = await fetch(url, { headers: { "User-Agent": "node" } });
       if (!res.ok) throw new Error(`Status ${res.status}: ${res.statusText}`);
 
-      const contentLength = res.headers.get("content-length");
-      if (contentLength && parseInt(contentLength) > MAX_DOWNLOAD_SIZE) {
-        throw new Error(`File too large: ${contentLength} bytes`);
+      const contentLengthHeader = res.headers.get("content-length");
+      if (contentLengthHeader) {
+        const contentLength = parseInt(contentLengthHeader);
+        if (contentLength > MAX_DOWNLOAD_SIZE) {
+          throw new Error(`File too large: ${contentLength} bytes`);
+        }
       }
 
       const buffer = Buffer.from(await res.arrayBuffer());
@@ -61,15 +71,18 @@ async function downloadFile(url, dest, retries = 3) {
     } catch (err) {
       lastError = err;
       if (i < retries) {
-        console.log(`Retry ${i}/${retries} after error: ${err.message}`);
+        const message = err instanceof Error ? err.message : String(err);
+        console.log(`Retry ${i}/${retries} after error: ${message}`);
         await new Promise(r => setTimeout(r, i * 1000));
       }
     }
   }
-  throw new Error(`Download failed after ${retries} attempts: ${lastError.message}`);
+  
+  const errorMessage = lastError instanceof Error ? lastError.message : String(lastError);
+  throw new Error(`Download failed after ${retries} attempts: ${errorMessage}`);
 }
 
-function extractArchive(archivePath, destination) {
+function extractArchive(archivePath: string, destination: string): void {
   if (!fs.existsSync(archivePath)) throw new Error("Archive not found");
   const stats = fs.statSync(archivePath);
   if (stats.size === 0) throw new Error("Archive is empty");
@@ -79,7 +92,8 @@ function extractArchive(archivePath, destination) {
   try {
     execSync(`tar -xzf "${archivePath}" -C "${destination}"`, { stdio: "inherit" });
   } catch (err) {
-    throw new Error(`Extraction failed: ${err.message}`);
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Extraction failed: ${message}`);
   }
 
   const extractedFiles = fs.readdirSync(destination);
@@ -89,8 +103,12 @@ function extractArchive(archivePath, destination) {
   
   const hasValidFile = extractedFiles.some(file => {
     const filePath = path.join(destination, file);
-    const stat = fs.statSync(filePath);
-    return stat.isFile() && stat.size > 0;
+    try {
+        const stat = fs.statSync(filePath);
+        return stat.isFile() && stat.size > 0;
+    } catch {
+        return false;
+    }
   });
   
   if (!hasValidFile) {
@@ -98,16 +116,17 @@ function extractArchive(archivePath, destination) {
   }
 }
 
-function manualBuild() {
+function manualBuild(): void {
   console.log("Attempting manual build...");
   try {
-    execSync("npm run build", { stdio: "inherit" });
+    execSync("pnpm run build:addon", { stdio: "inherit" }); 
   } catch (err) {
-    throw new Error(`Manual build command failed: ${err.message}`);
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Manual build command failed: ${message}`);
   }
 }
 
-function cleanup(tmpDir) {
+function cleanup(tmpDir: string | undefined): void {
   if (!tmpDir) return;
   
   try {
@@ -116,12 +135,13 @@ function cleanup(tmpDir) {
       console.log("Cleanup completed.");
     }
   } catch (err) {
-    console.warn(`Cleanup warning: ${err.message}`);
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`Cleanup warning: ${message}`);
   }
 }
 
 (async () => {
-  let tmp;
+  let tmp: string | undefined;
   try {
     if (os.platform() !== "linux") {
       throw new Error("Prebuilds are only available for Linux");
@@ -156,7 +176,8 @@ function cleanup(tmpDir) {
     cleanup(tmp);
     process.exit(0);
   } catch (error) {
-    console.error(`✗ Prebuild failed: ${error.message}`);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`✗ Prebuild failed: ${message}`);
     cleanup(tmp);
 
     try {
@@ -164,7 +185,8 @@ function cleanup(tmpDir) {
       console.log("✓ Manual build completed successfully.");
       process.exit(0);
     } catch (fallbackErr) {
-      console.error(`✗ Fallback build failed: ${fallbackErr.message}`);
+      const fallbackMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+      console.error(`✗ Fallback build failed: ${fallbackMsg}`);
       console.error("Please ensure you have the required build tools installed.");
       process.exit(1);
     }
