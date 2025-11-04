@@ -90,6 +90,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install --ignore-scripts
 
+      - name: Compile TypeScript
+        run: pnpm run build:ts
+        
+      - name: Verify TS compilation output
+        run: |
+          if [ ! -f "export.js" ] || [ ! -f "export.d.ts" ]; then
+            echo "Error: TypeScript compilation output (export.js or export.d.ts) not found in root directory."
+            exit 1
+          fi
+          echo "TS output (Root Dir):"
+          ls -lah export.*
+          
       - name: Build native addons
         env:
           npm_config_arch: ${{ matrix.npm_arch }}
@@ -99,13 +111,13 @@ jobs:
           pnpm run build:addon
           ls -lah build/Release/
           
-      - name: Verify build output
+      - name: Verify native build output
         run: |
           if [ ! -d "build/Release" ] || [ -z "$(ls -A build/Release)" ]; then
-            echo "Error: No build artifacts found"
+            echo "Error: No native build artifacts found"
             exit 1
           fi
-          echo "Build artifacts:"
+          echo "Native build artifacts:"
           ls -lah build/Release/
 
       - uses: actions/upload-artifact@v4
@@ -133,11 +145,26 @@ jobs:
       - uses: pnpm/action-setup@v3
         with:
           version: 10
+          
+      - name: Install dependencies for compilation
+        run: pnpm install --ignore-scripts
+
+      - name: Compile TypeScript to JavaScript and .d.ts (Before Publish)
+        run: pnpm run build:ts
 
       - uses: actions/download-artifact@v4
         with:
           path: ./artifacts
 
+      - name: Setup Native Addon runtime for testing
+        run: |
+          mkdir -p build/Release
+          cp artifacts/linux-x64/* build/Release/
+          echo "Native binaries copied to build/Release/ for functional testing."
+
+      - name: Run Native Addon Functional Tests
+        run: pnpm exec ts-node test.ts
+        
       - name: Display downloaded artifacts
         run: |
           echo "Downloaded artifacts:"
@@ -149,21 +176,21 @@ jobs:
 
       - name: Pack prebuild tarballs
         run: |
-          mkdir -p dist
+          mkdir -p prebuilds
           for dir in artifacts/*; do
             if [ -d "$dir" ]; then
               platform=$(basename "$dir")
-              tar -czf "dist/build-${platform}.tar.gz" -C "$dir" .
-              echo "✔ Packed build-${platform}.tar.gz ($(du -h "dist/build-${platform}.tar.gz" | cut -f1))"
+              tar -czf "prebuilds/build-${platform}.tar.gz" -C "$dir" . 
+              echo "✔ Packed build-${platform}.tar.gz ($(du -h "prebuilds/build-${platform}.tar.gz" | cut -f1))"
             fi
           done
-          echo "Final dist contents:"
-          ls -lah dist/
+          echo "Final prebuilds contents:"
+          ls -lah prebuilds/
 
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v1
         with:
-          files: dist/*.tar.gz
+          files: prebuilds/*.tar.gz 
           generate_release_notes: true
           fail_on_unmatched_files: true
 

@@ -14,7 +14,8 @@
       "-Wno-reorder",
       "-Wno-unused-variable",
       "-Wno-unused-parameter",
-      "-Wno-sign-compare"
+      "-Wno-sign-compare",
+      "-Wno-stringop-overflow"
     ],
     "common_ldflags": [
       "-Wl,--as-needed",
