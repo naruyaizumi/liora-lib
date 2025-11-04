@@ -93,13 +93,13 @@ jobs:
       - name: Compile TypeScript
         run: pnpm run build:ts
         
-      - name: Verify TS compilation output
+      - name: Verify TS compilation
         run: |
           if [ ! -f "export.js" ] || [ ! -f "export.d.ts" ]; then
             echo "Error: TypeScript compilation output (export.js or export.d.ts) not found in root directory."
             exit 1
           fi
-          echo "TS output (Root Dir):"
+          echo "TS output:"
           ls -lah export.*
           
       - name: Build native addons
@@ -149,7 +149,7 @@ jobs:
       - name: Install dependencies for compilation
         run: pnpm install --ignore-scripts
 
-      - name: Compile TypeScript to JavaScript and .d.ts (Before Publish)
+      - name: Compile TypeScript
         run: pnpm run build:ts
 
       - uses: actions/download-artifact@v4
@@ -159,7 +159,7 @@ jobs:
       - name: Setup Native Addon runtime for testing
         run: |
           mkdir -p build/Release
-          cp artifacts/linux-x64/* build/Release/
+          cp artifacts/linux-x64/*.node build/Release/
           echo "Native binaries copied to build/Release/ for functional testing."
 
       - name: Run Native Addon Functional Tests
