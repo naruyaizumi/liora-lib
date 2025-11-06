@@ -61,19 +61,13 @@ interface CustomResponse {
     json(): Promise<any>;
 }
 
-const isBun = typeof Bun !== "undefined";
-
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = __dirname;
 
 function universalRequire(modulePath: string): any {
-    if (isBun) {
-        return require(modulePath);
-    } else {
-        const { createRequire } = require("module");
-        const requireFn = createRequire(import.meta.url);
-        return requireFn(modulePath);
-    }
+    const { createRequire } = require("module");
+    const requireFn = createRequire(import.meta.url);
+    return requireFn(modulePath);
 }
 
 class AddonLoader<T> {
@@ -91,10 +85,10 @@ class AddonLoader<T> {
             
             try {
                 this._addon = universalRequire(releasePath) as T;
-            } catch {
+            } catch (e1) { //
                 try {
                     this._addon = universalRequire(debugPath) as T;
-                } catch {
+                } catch (e2) {
                     throw new Error(
                         `${this._name} Native addon is not built. ` +
                         `Make sure you run 'pnpm run build:addon' or 'npm run build:addon'.\n` +
