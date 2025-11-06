@@ -85,10 +85,14 @@ class AddonLoader<T> {
             
             try {
                 this._addon = universalRequire(releasePath) as T;
-            } catch (e1) { //
+            } catch (e1) {
+                console.error(`\n[AddonLoader] GAGAL LOAD RELEASE ADDON: ${releasePath}`);
+                console.error("KESALAHAN ASLI (RELEASE):", e1);
                 try {
                     this._addon = universalRequire(debugPath) as T;
                 } catch (e2) {
+                    console.error(`\n[AddonLoader] GAGAL LOAD DEBUG ADDON: ${debugPath}`);
+                    console.error("KESALAHAN ASLI (DEBUG):", e2);
                     throw new Error(
                         `${this._name} Native addon is not built. ` +
                         `Make sure you run 'pnpm run build:addon' or 'npm run build:addon'.\n` +
@@ -102,6 +106,7 @@ class AddonLoader<T> {
         return this._addon;
     }
 }
+
 
 const stickerLoader = new AddonLoader<StickerNativeAddon>("sticker");
 const converterLoader = new AddonLoader<ConverterNativeAddon>("converter");
