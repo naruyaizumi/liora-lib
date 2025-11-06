@@ -86,19 +86,13 @@ class AddonLoader<T> {
             try {
                 this._addon = universalRequire(releasePath) as T;
             } catch (e1) {
-                console.error(`\n[AddonLoader] GAGAL LOAD RELEASE ADDON: ${releasePath}`);
-                console.error("KESALAHAN ASLI (RELEASE):", e1);
+                // ignore
                 try {
                     this._addon = universalRequire(debugPath) as T;
                 } catch (e2) {
-                    console.error(`\n[AddonLoader] GAGAL LOAD DEBUG ADDON: ${debugPath}`);
-                    console.error("KESALAHAN ASLI (DEBUG):", e2);
+                    // ignore
                     throw new Error(
-                        `${this._name} Native addon is not built. ` +
-                        `Make sure you run 'pnpm run build:addon' or 'npm run build:addon'.\n` +
-                        `Expected locations:\n` +
-                        `  - ${releasePath}\n` +
-                        `  - ${debugPath}`
+                        `${this._name} Native addon is not built.`
                     );
                 }
             }
