@@ -1,6 +1,5 @@
 import path from "path";
 import { fileURLToPath } from "url";
-import { createRequire } from "module";
 
 interface AddonOptions {
     packName?: string;
@@ -39,7 +38,7 @@ interface FetchResponse {
     headers: Record<string, string>;
     url?: string;
     ok?: boolean;
-    body: Buffer | ArrayBuffer | ArrayBufferView | number[] | null; 
+    body: Buffer | ArrayBuffer | ArrayBufferView | number[] | null;
     abort?: () => void;
 }
 
@@ -56,31 +55,64 @@ interface CustomResponse {
     ok: boolean;
     body: Buffer;
     abort: () => void;
-    arrayBuffer(): Promise<ArrayBuffer | SharedArrayBuffer>; 
+    arrayBuffer(): Promise<ArrayBuffer | SharedArrayBuffer>;
     buffer(): Promise<Buffer>;
     text(): Promise<string>;
     json(): Promise<any>;
 }
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const require = createRequire(import.meta.url);
+const isBun = typeof Bun !== "undefined";
 
-function loadAddon<T>(name: string): T {
-    const projectRoot = __dirname; 
-    try {
-        return require(path.join(projectRoot, `./build/Release/${name}.node`)) as T;
-    } catch {
-        try {
-            return require(path.join(projectRoot, `./build/Debug/${name}.node`)) as T;
-        } catch {
-            throw new Error(`${name} Native addon is not built. Make sure you run 'pnpm run build:addon'.\n› Run: npm run build`);
-        }
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = __dirname;
+
+function universalRequire(modulePath: string): any {
+    if (isBun) {
+        return require(modulePath);
+    } else {
+        const { createRequire } = require("module");
+        const requireFn = createRequire(import.meta.url);
+        return requireFn(modulePath);
     }
 }
 
-const stickerNative = loadAddon<StickerNativeAddon>("sticker");
-const converterNative = loadAddon<ConverterNativeAddon>("converter");
-const fetchNative = loadAddon<FetchNativeAddon>("fetch");
+class AddonLoader<T> {
+    private _addon: T | null = null;
+    private _name: string;
+
+    constructor(name: string) {
+        this._name = name;
+    }
+
+    get addon(): T {
+        if (this._addon === null) {
+            const releasePath = path.join(projectRoot, `./build/Release/${this._name}.node`);
+            const debugPath = path.join(projectRoot, `./build/Debug/${this._name}.node`);
+            
+            try {
+                this._addon = universalRequire(releasePath) as T;
+            } catch {
+                try {
+                    this._addon = universalRequire(debugPath) as T;
+                } catch {
+                    throw new Error(
+                        `${this._name} Native addon is not built. ` +
+                        `Make sure you run 'pnpm run build:addon' or 'npm run build:addon'.\n` +
+                        `Expected locations:\n` +
+                        `  - ${releasePath}\n` +
+                        `  - ${debugPath}`
+                    );
+                }
+            }
+        }
+        return this._addon;
+    }
+}
+
+const stickerLoader = new AddonLoader<StickerNativeAddon>("sticker");
+const converterLoader = new AddonLoader<ConverterNativeAddon>("converter");
+const fetchLoader = new AddonLoader<FetchNativeAddon>("fetch");
+
 const textDecoder = new TextDecoder("utf-8");
 
 function isWebP(buf: Buffer): boolean {
@@ -96,7 +128,7 @@ interface AddExifOptions extends AddonOptions {}
 
 function addExif(buffer: Buffer, meta: AddExifOptions = {}): Buffer {
     if (!Buffer.isBuffer(buffer)) throw new Error("addExif() input must be a Buffer");
-    return stickerNative.addExif(buffer, meta);
+    return stickerLoader.addon.addExif(buffer, meta);
 }
 
 function sticker(buffer: Buffer, options: StickerOptions = {}): Buffer {
@@ -110,14 +142,14 @@ function sticker(buffer: Buffer, options: StickerOptions = {}): Buffer {
         authorName: options.authorName || "",
         emojis: options.emojis || [],
     };
-    if (isWebP(buffer)) return stickerNative.addExif(buffer, opts);
-    return stickerNative.sticker(buffer, opts);
+    if (isWebP(buffer)) return stickerLoader.addon.addExif(buffer, opts);
+    return stickerLoader.addon.sticker(buffer, opts);
 }
 
 function convert(input: Buffer | { data: Buffer }, options: ConvertOptions = {}): Buffer | Promise<Buffer> {
     const buf: Buffer = Buffer.isBuffer(input) ? input : input?.data;
     if (!Buffer.isBuffer(buf)) throw new Error("convert() input must be a Buffer");
-    return converterNative.convert(buf, {
+    return converterLoader.addon.convert(buf, {
         format: options.format || "opus",
         bitrate: options.bitrate || "64k",
         channels: options.channels ?? 2,
@@ -131,29 +163,31 @@ type NativeFetchResult = { promise: Promise<FetchResponse>, abort?: () => void }
 
 function fetch(url: string, options: Record<string, any> = {}): Promise<CustomResponse> {
     if (typeof url !== "string") throw new TypeError("fetch() requires a URL string");
-    if (!fetchNative) throw new Error("Native fetch addon not loaded");
     
+    const fetchNative = fetchLoader.addon;
+    if (!fetchNative) throw new Error("Native fetch addon not loaded");
+
     const nativeFunc = fetchNative.startFetch || fetchNative.fetch;
     if (typeof nativeFunc !== "function") throw new Error("No valid native fetch entrypoint");
-    
-    const exec: NativeFetchResult = 
+
+    const exec: NativeFetchResult =
         typeof fetchNative.startFetch === "function"
-            ? fetchNative.startFetch(url, options) 
-            : { 
+            ? fetchNative.startFetch(url, options)
+            : {
                 promise: (nativeFunc(url, options) as Promise<FetchResponse>),
                 abort: undefined
             };
 
     const promise = exec.promise;
-    
+
     return promise
         .then((res) => {
             if (!res || typeof res !== "object") {
                 throw new Error("Invalid response from native fetch");
             }
-            
+
             let body: Buffer;
-            
+
             if (Buffer.isBuffer(res.body)) {
                 body = res.body;
             } else if (res.body instanceof ArrayBuffer) {
@@ -165,9 +199,9 @@ function fetch(url: string, options: Record<string, any> = {}): Promise<CustomRe
             } else {
                 body = Buffer.from([]);
             }
-            
+
             const cachedTextRef: { val: string | null } = { val: null };
-            
+
             const out: CustomResponse = {
                 status: res.status,
                 statusText: res.statusText || "",
@@ -175,7 +209,7 @@ function fetch(url: string, options: Record<string, any> = {}): Promise<CustomRe
                 url: res.url || url,
                 ok: res.status >= 200 && res.status < 300,
                 body: body,
-                abort: exec.abort || (() => {}), 
+                abort: exec.abort || (() => {}),
                 arrayBuffer() {
                     return Promise.resolve(body.buffer.slice(
                         body.byteOffset,
@@ -204,7 +238,7 @@ function fetch(url: string, options: Record<string, any> = {}): Promise<CustomRe
                     });
                 },
             };
-            
+
             return out;
         })
         .catch((err) => {

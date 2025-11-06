@@ -1,4 +1,3 @@
-import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -8,6 +7,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repo = "naruyaizumi/liora-lib";
 const outDir = path.join(__dirname, "./build/Release");
 const MAX_DOWNLOAD_SIZE = 100 * 1024 * 1024;
+
+const isBun = typeof Bun !== "undefined";
 
 type SupportedArch = 'x64';
 type ProcessArch = NodeJS.Architecture;
@@ -37,36 +38,50 @@ function detectDebian(): boolean {
 }
 
 async function latestTag(): Promise<string> {
+  const userAgent = isBun ? "bun" : "node";
   const res = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
-    headers: { "User-Agent": "node", Accept: "application/vnd.github.v3+json" },
+    headers: { "User-Agent": userAgent, Accept: "application/vnd.github.v3+json" },
   });
+  
   if (!res.ok) throw new Error(`GitHub API error: ${res.status} ${res.statusText}`);
-  const json = await res.json() as { tag_name?: string };
-  if (!json.tag_name) throw new Error("Release tag not found");
-  return json.tag_name;
+  
+  const json = await res.json();
+  if (typeof json !== 'object' || json === null || !('tag_name' in json)) {
+    throw new Error("Invalid API response");
+  }
+  
+  const tagName = (json as { tag_name?: unknown }).tag_name;
+  if (typeof tagName !== 'string') throw new Error("Release tag not found");
+  
+  return tagName;
 }
 
 async function downloadFile(url: string, dest: string, retries: number = 3): Promise<number> {
   let lastError: unknown;
+  const userAgent = isBun ? "bun" : "node";
+  
   for (let i = 1; i <= retries; i++) {
     try {
-      const res = await fetch(url, { headers: { "User-Agent": "node" } });
+      const res = await fetch(url, { headers: { "User-Agent": userAgent } });
       if (!res.ok) throw new Error(`Status ${res.status}: ${res.statusText}`);
 
       const contentLengthHeader = res.headers.get("content-length");
       if (contentLengthHeader) {
-        const contentLength = parseInt(contentLengthHeader);
+        const contentLength = parseInt(contentLengthHeader, 10);
         if (contentLength > MAX_DOWNLOAD_SIZE) {
           throw new Error(`File too large: ${contentLength} bytes`);
         }
       }
 
-      const buffer = Buffer.from(await res.arrayBuffer());
+      const arrayBuffer = await res.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      
       if (buffer.length === 0) throw new Error("File is empty");
       if (buffer.length > MAX_DOWNLOAD_SIZE) throw new Error("File exceeds size limit");
 
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       fs.writeFileSync(dest, buffer);
+      
       return buffer.length;
     } catch (err) {
       lastError = err;
@@ -82,15 +97,30 @@ async function downloadFile(url: string, dest: string, retries: number = 3): Pro
   throw new Error(`Download failed after ${retries} attempts: ${errorMessage}`);
 }
 
-function extractArchive(archivePath: string, destination: string): void {
+async function extractArchive(archivePath: string, destination: string): Promise<void> {
   if (!fs.existsSync(archivePath)) throw new Error("Archive not found");
+  
   const stats = fs.statSync(archivePath);
   if (stats.size === 0) throw new Error("Archive is empty");
 
   fs.mkdirSync(destination, { recursive: true });
   
   try {
-    execSync(`tar -xzf "${archivePath}" -C "${destination}"`, { stdio: "inherit" });
+    if (isBun) {
+      const proc = Bun.spawn(["tar", "-xzf", archivePath, "-C", destination], {
+        stdout: "inherit",
+        stderr: "inherit",
+      });
+      
+      await proc.exited;
+      
+      if (proc.exitCode !== 0) {
+        throw new Error(`tar command failed with exit code ${proc.exitCode}`);
+      }
+    } else {
+      const { execSync } = await import("child_process");
+      execSync(`tar -xzf "${archivePath}" -C "${destination}"`, { stdio: "inherit" });
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Extraction failed: ${message}`);
@@ -104,10 +134,10 @@ function extractArchive(archivePath: string, destination: string): void {
   const hasValidFile = extractedFiles.some(file => {
     const filePath = path.join(destination, file);
     try {
-        const stat = fs.statSync(filePath);
-        return stat.isFile() && stat.size > 0;
+      const stat = fs.statSync(filePath);
+      return stat.isFile() && stat.size > 0;
     } catch {
-        return false;
+      return false;
     }
   });
   
@@ -116,10 +146,26 @@ function extractArchive(archivePath: string, destination: string): void {
   }
 }
 
-function manualBuild(): void {
+async function manualBuild(): Promise<void> {
   console.log("Attempting manual build...");
+  
   try {
-    execSync("pnpm run build:addon", { stdio: "inherit" }); 
+    if (isBun) {
+      const proc = Bun.spawn(["bun", "run", "build:addon"], {
+        stdout: "inherit",
+        stderr: "inherit",
+        stdin: "inherit",
+      });
+      
+      await proc.exited;
+      
+      if (proc.exitCode !== 0) {
+        throw new Error(`Build command exited with code ${proc.exitCode}`);
+      }
+    } else {
+      const { execSync } = await import("child_process");
+      execSync("npm run build:addon", { stdio: "inherit" });
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Manual build command failed: ${message}`);
@@ -141,7 +187,10 @@ function cleanup(tmpDir: string | undefined): void {
 }
 
 (async () => {
+  console.log(`Running on: ${isBun ? 'Bun' : 'Node.js'} ${process.version}`);
+  
   let tmp: string | undefined;
+  
   try {
     if (os.platform() !== "linux") {
       throw new Error("Prebuilds are only available for Linux");
@@ -170,7 +219,7 @@ function cleanup(tmpDir: string | undefined): void {
 
     fs.mkdirSync(outDir, { recursive: true });
     console.log("Extracting archive...");
-    extractArchive(dest, outDir);
+    await extractArchive(dest, outDir);
 
     console.log("✓ Prebuild installed successfully.");
     cleanup(tmp);
@@ -181,7 +230,7 @@ function cleanup(tmpDir: string | undefined): void {
     cleanup(tmp);
 
     try {
-      manualBuild();
+      await manualBuild();
       console.log("✓ Manual build completed successfully.");
       process.exit(0);
     } catch (fallbackErr) {
